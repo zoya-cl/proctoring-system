@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ProctorGuard — Pre-Test Environment Check</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap');
+
+  :root {
+    --bg:      #0a0c10;
+    --panel:   #0f1318;
+    --border:  #1e2530;
+    --accent:  #00e5ff;
+    --warn:    #ffb300;
+    --danger:  #ff3d5a;
+    --ok:      #00e676;
+    --text:    #cdd6e0;
+    --muted:   #4a5568;
+    --mono:    'Space Mono', monospace;
+    --sans:    'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* ── Header ─────────────────────────── */
+  header {
+    width: 100%;
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .logo-dot {
+    width: 10px; height: 10px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; transform: scale(1); }
+    50%      { opacity: .5; transform: scale(.7); }
+  }
+  header h1 { font-size: 1.1rem; font-weight: 800; letter-spacing: .12em; color: #fff; }
+  header span { font-family: var(--mono); font-size: .7rem; color: var(--muted); margin-left: auto; }
+
+  /* ── Main grid ───────────────────────── */
+  main {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 20px;
+    padding: 24px;
+    width: 100%;
+    max-width: 1180px;
+    flex: 1;
+  }
+
+  /* ── Camera panel ────────────────────── */
+  .cam-wrap {
+    position: relative;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16/9;
+  }
+  #videoEl, #overlayCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  #overlayCanvas { pointer-events: none; }
+
+  .cam-badge {
+    position: absolute;
+    top: 12px; left: 12px;
+    background: rgba(0,0,0,.7);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: .65rem;
+    color: var(--accent);
+    letter-spacing: .08em;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .rec-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--danger);
+    animation: blink .8s step-start infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  #statusBanner {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    padding: 10px 16px;
+    font-family: var(--mono);
+    font-size: .8rem;
+    letter-spacing: .06em;
+    text-align: center;
+    backdrop-filter: blur(6px);
+    transition: background .3s, color .3s;
+  }
+  #statusBanner.ok      { background: rgba(0,230,118,.15); color: var(--ok);    border-top: 1px solid var(--ok);    }
+  #statusBanner.warn    { background: rgba(255,179,0,.15);  color: var(--warn);  border-top: 1px solid var(--warn);  }
+  #statusBanner.danger  { background: rgba(255,61,90,.18);  color: var(--danger);border-top: 1px solid var(--danger);}
+  #statusBanner.idle    { background: rgba(255,255,255,.05);color: var(--muted); border-top: 1px solid var(--border);}
+
+  .cam-offline {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 14px; color: var(--muted);
+    font-family: var(--mono); font-size: .8rem;
+  }
+  .cam-offline svg { width: 52px; opacity: .35; }
+
+  /* ── Right sidebar ───────────────────── */
+  .sidebar { display: flex; flex-direction: column; gap: 16px; }
+
+  /* Cards */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .card-title {
+    font-size: .65rem; font-weight: 700; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--muted); margin-bottom: 14px;
+  }
+
+  /* Check list */
+  .check-list { display: flex; flex-direction: column; gap: 10px; }
+  .check-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border-radius: 8px;
+    background: rgba(255,255,255,.02);
+    border: 1px solid var(--border);
+    transition: border-color .3s, background .3s;
+  }
+  .check-item.ok     { border-color: rgba(0,230,118,.3); background: rgba(0,230,118,.04); }
+  .check-item.warn   { border-color: rgba(255,179,0,.3); background: rgba(255,179,0,.04); }
+  .check-item.danger { border-color: rgba(255,61,90,.3); background: rgba(255,61,90,.06); }
+
+  .check-icon {
+    width: 28px; height: 28px;
+    border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .85rem;
+    border: 1px solid var(--border);
+  }
+  .check-item.ok     .check-icon { background: rgba(0,230,118,.12); border-color: var(--ok); }
+  .check-item.warn   .check-icon { background: rgba(255,179,0,.12);  border-color: var(--warn); }
+  .check-item.danger .check-icon { background: rgba(255,61,90,.12);  border-color: var(--danger); }
+
+  .check-label { font-size: .8rem; font-weight: 600; }
+  .check-sub   { font-size: .65rem; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+
+  /* Violation log */
+  #violLog {
+    max-height: 170px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .log-entry {
+    font-family: var(--mono); font-size: .65rem;
+    padding: 5px 8px; border-radius: 4px;
+    border-left: 3px solid var(--muted);
+    background: rgba(255,255,255,.02);
+    animation: slideIn .2s ease;
+  }
+  @keyframes slideIn { from { opacity:0; transform:translateX(-8px); } to { opacity:1; transform:none; } }
+  .log-entry.danger { border-left-color: var(--danger); color: var(--danger); }
+  .log-entry.warn   { border-left-color: var(--warn);   color: var(--warn);   }
+  .log-entry.ok     { border-left-color: var(--ok);     color: var(--ok);     }
+
+  /* Stats row */
+  .stats-row {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+  }
+  .stat-box {
+    background: rgba(255,255,255,.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 10px; text-align: center;
+  }
+  .stat-num {
+    font-size: 1.5rem; font-weight: 800;
+    font-family: var(--mono);
+    line-height: 1;
+  }
+  .stat-num.danger { color: var(--danger); }
+  .stat-num.warn   { color: var(--warn);   }
+  .stat-num.ok     { color: var(--ok);     }
+  .stat-lbl { font-size: .58rem; color: var(--muted); margin-top: 4px; letter-spacing: .08em; }
+
+  /* Controls */
+  .btn {
+    width: 100%; padding: 13px;
+    border: none; border-radius: 8px;
+    font-family: var(--sans); font-size: .85rem;
+    font-weight: 700; letter-spacing: .08em;
+    cursor: pointer; transition: .2s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #000;
+  }
+  .btn-primary:hover { filter: brightness(1.2); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  .btn-outline {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    margin-top: 8px;
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Mode toggle */
+  .mode-row {
+    display: flex; gap: 6px; margin-bottom: 14px;
+  }
+  .mode-btn {
+    flex: 1; padding: 7px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted); font-size: .7rem;
+    font-weight: 700; letter-spacing: .06em;
+    cursor: pointer; transition: .2s;
+  }
+  .mode-btn.active {
+    background: rgba(0,229,255,.1);
+    border-color: var(--accent); color: var(--accent);
+  }
+
+  /* YOLO badge */
+  #yoloBadge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--mono); font-size: .6rem;
+    padding: 3px 8px; border-radius: 4px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  #yoloBadge.on { border-color: var(--ok); color: var(--ok); background: rgba(0,230,118,.06); }
+
+  /* Bottom bar */
+  footer {
+    width: 100%; padding: 12px 32px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: .62rem; color: var(--muted);
+  }
+  footer span { margin-left: auto; color: var(--accent); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Responsive */
+  @media (max-width: 780px) {
+    main { grid-template-columns: 1fr; }
+    .sidebar { order: -1; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-dot"></div>
+  <h1>PROCTORGUARD</h1>
+  <span id="clockEl">--:--:--</span>
+</header>
+
+<main>
+  <!-- Camera -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="cam-wrap" id="camWrap">
+      <div class="cam-offline" id="camOffline">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M15 10l4.55-2.27A1 1 0 0121 8.73v6.54a1 1 0 01-1.45.9L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+          <line x1="1" y1="1" x2="23" y2="23"/>
+        </svg>
+        Camera inactive — click START below
+      </div>
+      <video id="videoEl" autoplay muted playsinline style="display:none"></video>
+      <canvas id="overlayCanvas" style="display:none"></canvas>
+      <div class="cam-badge" id="recBadge" style="display:none">
+        <div class="rec-dot"></div> MONITORING
+      </div>
+      <div id="statusBanner" class="idle">Waiting to start…</div>
+    </div>
+
+    <!-- Stats row -->
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="stat-num ok" id="statFaces">0</div>
+        <div class="stat-lbl">FACES</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num ok" id="statViol">0</div>
+        <div class="stat-lbl">VIOLATIONS</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-num ok" id="statTime">0s</div>
+        <div class="stat-lbl">ELAPSED</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- Controls -->
+    <div class="card">
+      <div class="card-title">Detection Mode</div>
+      <div id="yoloBadge">⬤ YOLO phone detect: checking…</div>
+      <div class="mode-row">
+        <button class="mode-btn active" onclick="setMode('live')" id="mLive">LIVE</button>
+        <button class="mode-btn" onclick="setMode('snapshot')" id="mSnap">SNAPSHOT</button>
+        <button class="mode-btn" onclick="setMode('local')" id="mLocal">LOCAL</button>
+      </div>
+      <button class="btn btn-primary" id="startBtn" onclick="startMonitor()">▶  START MONITORING</button>
+      <button class="btn btn-outline" id="stopBtn" onclick="stopMonitor()" disabled>■  STOP</button>
+    </div>
+
+    <!-- Live checks -->
+    <div class="card">
+      <div class="card-title">Live Checks</div>
+      <div class="check-list" id="checkList">
+        <div class="check-item" id="ck-face">
+          <div class="check-icon">👤</div>
+          <div>
+            <div class="check-label">Face Presence</div>
+            <div class="check-sub" id="ck-face-sub">Waiting…</div>
+          </div>
+        </div>
+        <div class="check-item" id="ck-multi">
+          <div class="check-icon">👥</div>
+          <div>
+            <div class="check-label">Single Person</div>
+            <div class="check-sub" id="ck-multi-sub">Waiting…</div>
+          </div>
+        </div>
+        <div class="check-item" id="ck-frame">
+          <div class="check-icon">🎯</div>
+          <div>
+            <div class="check-label">In Frame</div>
+            <div class="check-sub" id="ck-frame-sub">Waiting…</div>
+          </div>
+        </div>
+        <div class="check-item" id="ck-gaze">
+          <div class="check-icon">👁</div>
+          <div>
+            <div class="check-label">Looking Forward</div>
+            <div class="check-sub" id="ck-gaze-sub">Waiting…</div>
+          </div>
+        </div>
+        <div class="check-item" id="ck-phone">
+          <div class="check-icon">📱</div>
+          <div>
+            <div class="check-label">No Phone</div>
+            <div class="check-sub" id="ck-phone-sub">Waiting…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="card">
+      <div class="card-title">Violation Log</div>
+      <div id="violLog">
+        <div class="log-entry" style="color:var(--muted);border-left-color:var(--muted)">No violations recorded yet.</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  <div class="logo-dot" style="width:6px;height:6px;"></div>
+  ProctorGuard · OpenCV + YOLOv8 + Face Detection
+  <span id="modeLabel">MODE: LIVE</span>
+</footer>
+
+<script>
+/* ─── State ─────────────────────────────── */
+const SERVER = "http://localhost:5050";
+let stream = null, analysisLoop = null, active = false;
+let mode = "live";  // live | snapshot | local (browser-only)
+let startTime = null, violCount = 0;
+let clockInterval = null;
+let localFaceAPI = null;  // face-api.js if available
+
+/* ─── Clock ──────────────────────────────── */
+setInterval(() => {
+  document.getElementById("clockEl").textContent =
+    new Date().toLocaleTimeString("en-US", {hour12: false});
+}, 1000);
+
+/* ─── Mode ───────────────────────────────── */
+function setMode(m) {
+  mode = m;
+  ["live","snapshot","local"].forEach(id => {
+    document.getElementById("m"+id.charAt(0).toUpperCase()+id.slice(1)).classList.toggle("active", id===m);
+  });
+  document.getElementById("modeLabel").textContent = "MODE: " + m.toUpperCase();
+}
+
+/* ─── Check server + YOLO ────────────────── */
+async function checkServer() {
+  try {
+    const r = await fetch(SERVER + "/health", {signal: AbortSignal.timeout(2000)});
+    const d = await r.json();
+    const badge = document.getElementById("yoloBadge");
+    if (d.yolo) {
+      badge.textContent = "⬤ YOLO phone detect: ENABLED";
+      badge.classList.add("on");
+    } else {
+      badge.textContent = "⬤ YOLO phone detect: disabled (pip install ultralytics)";
+    }
+  } catch {
+    document.getElementById("yoloBadge").textContent = "⬤ Server offline — using LOCAL mode";
+    setMode("local");
+  }
+}
+checkServer();
+
+/* ─── Camera ──────────────────────────────── */
+async function startMonitor() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({video:{width:1280,height:720,facingMode:"user"}, audio:false});
+  } catch(e) {
+    alert("Camera permission denied: " + e.message); return;
+  }
+
+  const video = document.getElementById("videoEl");
+  const canvas = document.getElementById("overlayCanvas");
+  video.srcObject = stream;
+  video.style.display = "block";
+  canvas.style.display = "block";
+  document.getElementById("camOffline").style.display = "none";
+  document.getElementById("recBadge").style.display = "flex";
+  document.getElementById("startBtn").disabled = true;
+  document.getElementById("stopBtn").disabled = false;
+
+  active = true;
+  startTime = Date.now();
+  violCount = 0;
+
+  // Clock
+  clockInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    document.getElementById("statTime").textContent = s + "s";
+  }, 1000);
+
+  // Load face-api for local mode
+  if (mode === "local") {
+    await loadLocalFaceAPI();
+  }
+
+  analysisLoop = setInterval(analyzeFrame, mode === "live" ? 800 : 1500);
+}
+
+function stopMonitor() {
+  active = false;
+  clearInterval(analysisLoop);
+  clearInterval(clockInterval);
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  document.getElementById("videoEl").style.display = "none";
+  document.getElementById("overlayCanvas").style.display = "none";
+  document.getElementById("camOffline").style.display = "flex";
+  document.getElementById("recBadge").style.display = "none";
+  document.getElementById("startBtn").disabled = false;
+  document.getElementById("stopBtn").disabled = true;
+  setStatus("idle", "Monitoring stopped");
+}
+
+/* ─── Frame capture ───────────────────────── */
+function captureFrame() {
+  const video = document.getElementById("videoEl");
+  const c = document.createElement("canvas");
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext("2d").drawImage(video, 0, 0);
+  return c.toDataURL("image/jpeg", 0.85);
+}
+
+/* ─── Analysis ────────────────────────────── */
+async function analyzeFrame() {
+  if (!active) return;
+  const b64 = captureFrame();
+
+  let result;
+  if (mode === "local") {
+    result = await analyzeLocal(b64);
+  } else {
+    try {
+      const r = await fetch(SERVER + "/analyze", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({frame: b64}),
+        signal: AbortSignal.timeout(3000)
+      });
+      result = await r.json();
+    } catch {
+      // Fallback to local
+      result = await analyzeLocal(b64);
+    }
+  }
+
+  applyResult(result, b64);
+}
+
+/* ─── Local (browser-only) face detect via canvas heuristic ── */
+// Uses built-in face detection API (Chrome 74+) or basic approach
+async function analyzeLocal(b64) {
+  const img = await createImageBitmap(await fetch(b64).then(r => r.blob()));
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width; canvas.height = img.height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+
+  let faceCount = 0;
+  let violations = [], warnings = [];
+
+  // Use FaceDetector API if available (Chrome)
+  if ("FaceDetector" in window) {
+    try {
+      const fd = new FaceDetector({fastMode: true});
+      const faces = await fd.detect(canvas);
+      faceCount = faces.length;
+    } catch(e) { faceCount = -1; }
+  } else {
+    // Rough brightness/skin-tone heuristic as fallback
+    faceCount = -1; // unknown
+  }
+
+  if (faceCount === 0)       violations.push("NO_FACE_DETECTED");
+  else if (faceCount > 1)    violations.push("MULTIPLE_FACES_" + faceCount);
+  else if (faceCount === -1) warnings.push("FACE_DETECTION_LIMITED");
+
+  return {
+    face_count: faceCount,
+    phones: [],
+    violations,
+    warnings,
+    annotated: null,
+    yolo_enabled: false,
+    local_mode: true
+  };
+}
+
+/* ─── Apply result to UI ──────────────────── */
+function applyResult(res, rawB64) {
+  const fc = res.face_count;
+  const viol = res.violations || [];
+  const warn = res.warnings || [];
+  const phones = res.phones || [];
+
+  // Stats
+  document.getElementById("statFaces").textContent = fc < 0 ? "?" : fc;
+  document.getElementById("statFaces").className = "stat-num " + (fc === 1 ? "ok" : fc === 0 ? "danger" : "warn");
+
+  if (viol.length > 0) {
+    violCount++;
+    document.getElementById("statViol").textContent = violCount;
+    document.getElementById("statViol").className = "stat-num danger";
+  }
+
+  // Overlay annotated frame
+  if (res.annotated) {
+    const video = document.getElementById("videoEl");
+    const canvas = document.getElementById("overlayCanvas");
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    const img = new Image();
+    img.onload = () => canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+    img.src = res.annotated;
+  }
+
+  // Checks
+  updateCheck("ck-face",
+    fc > 0 ? "ok" : (fc === 0 ? "danger" : "warn"),
+    fc > 0 ? "Face detected" : (fc === 0 ? "No face in frame!" : "Detection limited"),
+  );
+  updateCheck("ck-multi",
+    fc === 1 ? "ok" : (fc > 1 ? "danger" : "warn"),
+    fc === 1 ? "1 person detected" : (fc > 1 ? fc + " faces detected!" : "Uncertain"),
+  );
+  const outOfFrame = viol.includes("FACE_OUT_OF_FRAME");
+  updateCheck("ck-frame",
+    outOfFrame ? "danger" : "ok",
+    outOfFrame ? "Face out of frame!" : "Face centered"
+  );
+  const lookAway = warn.includes("HEAD_TURNED_AWAY") || warn.includes("LOOKING_SIDEWAYS");
+  updateCheck("ck-gaze",
+    lookAway ? "warn" : "ok",
+    lookAway ? "Not looking at screen" : "Looking forward"
+  );
+  const phoneDetected = viol.includes("PHONE_DETECTED") || phones.length > 0;
+  updateCheck("ck-phone",
+    phoneDetected ? "danger" : "ok",
+    phoneDetected ? "Phone detected!" : phones.length === 0 ? "No phone detected" : "Clear"
+  );
+
+  // Status banner
+  if (viol.length > 0) {
+    const v = viol[0].replace(/_/g, " ");
+    setStatus("danger", "⚠ VIOLATION: " + v);
+    logEntry(v, "danger");
+  } else if (warn.length > 0) {
+    setStatus("warn", "⚡ WARNING: " + warn[0].replace(/_/g, " "));
+    if (Math.random() < 0.3) logEntry(warn[0].replace(/_/g, " "), "warn");
+  } else {
+    setStatus("ok", fc > 0 ? "✓ All checks passed" : "Analyzing…");
+  }
+}
+
+function updateCheck(id, state, sub) {
+  const el = document.getElementById(id);
+  el.className = "check-item " + state;
+  el.querySelector(".check-sub").textContent = sub;
+  const icon = el.querySelector(".check-icon");
+  // flash
+  icon.style.transform = "scale(1.2)";
+  setTimeout(() => icon.style.transform = "", 150);
+}
+
+function setStatus(cls, msg) {
+  const b = document.getElementById("statusBanner");
+  b.className = cls;
+  b.textContent = msg;
+}
+
+function logEntry(msg, cls) {
+  const log = document.getElementById("violLog");
+  const d = document.createElement("div");
+  d.className = "log-entry " + cls;
+  const t = new Date().toLocaleTimeString("en-US", {hour12:false});
+  d.textContent = `[${t}] ${msg}`;
+  // Clear placeholder
+  if (log.children.length === 1 && log.children[0].style.color === "var(--muted)") log.innerHTML = "";
+  log.prepend(d);
+  if (log.children.length > 30) log.removeChild(log.lastChild);
+}
+</script>
+</body>
+</html>
