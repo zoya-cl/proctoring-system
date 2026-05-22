@@ -196,10 +196,19 @@
                     class="glass-panel p-6 rounded-xl border-t-4 border-t-cyan-500"
                 >
                     <h2 class="text-lg font-semibold mb-4">Session Control</h2>
-                    <p class="text-sm text-slate-400 mb-6">
-                        Ensure your face is clearly visible and well-lit. Put
-                        away all unauthorized devices.
+                    <p class="text-sm text-slate-400 mb-2">
+                        Ensure your face is clearly visible and well-lit. Put away all unauthorized devices.
                     </p>
+                    
+                    <!-- Session Info Display -->
+                    <div class="bg-slate-900/50 rounded-lg p-3 mb-4 border border-slate-700/50">
+                        <div class="text-xs text-slate-500 font-mono space-y-1">
+                            <div><span class="text-cyan-400">User ID:</span> <span id="displayUserId" class="text-white"></span></div>
+                            <div><span class="text-cyan-400">Interview ID:</span> <span id="displayInterviewId" class="text-white"></span></div>
+                            <div><span class="text-cyan-400">Test Type:</span> <span id="displayTestType" class="text-amber-400 font-semibold"></span></div>
+                        </div>
+                    </div>
+                    
                     <button
                         id="startBtn"
                         class="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95 shadow-lg shadow-cyan-500/20"
@@ -591,6 +600,25 @@
             /**
              * UI Controller
              */
+
+            // Helper function to capture canvas as base64
+            async function captureCanvasAsBase64() {
+                try {
+                    const canvas = UI.canvas || document.getElementById("videoEl");
+                    return canvas.toDataURL("image/jpeg", 0.7);
+                } catch (err) {
+                    console.warn("Could not capture canvas:", err);
+                    return "data:image/jpeg;base64,";
+                }
+            }
+
+            // Populate session info display
+            function displaySessionInfo() {
+                document.getElementById("displayUserId").textContent = userId;
+                document.getElementById("displayInterviewId").textContent = interviewId;
+                document.getElementById("displayTestType").textContent = testType.toUpperCase();
+            }
+
             const UI = {
                 video: document.getElementById("videoEl"),
                 canvas: document.getElementById("overlayCanvas"),
@@ -607,8 +635,20 @@
             };
 
             // Initialize SDK
+            // Get parameters from URL or defaults
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('userId') || 'user_' + Date.now();
+            const interviewId = urlParams.get('interviewId') || 'interview_' + Date.now();
+            const testType = urlParams.get('testType') || 'interview'; // coding, interview, test
+            
+            document.title = `ProctorKit - ${testType.toUpperCase()} [User: ${userId}]`;
+
             UI.proctor = new ProctorKit({
-                sessionId: "exam_demo_123",
+                sessionId: interviewId,
+                apiBase: "http://127.0.0.1:8000",  // LOCAL BACKEND CONNECTION
+                userId: userId,                     // USER TRACKING
+                interviewId: interviewId,           // INTERVIEW TRACKING
+                testType: testType,                 // TEST TYPE
                 onResult: (data) => {
                     // Update Stats
                     document.getElementById("statFaces").textContent =
@@ -663,7 +703,7 @@
                         "Objects Detected",
                     );
                 },
-                onViolation: (data) => {
+                onViolation: async (data) => {
                     // Remove empty state message if exists
                     if (
                         UI.logContainer.children.length === 1 &&
@@ -688,6 +728,42 @@
                     </div>
                 `;
                     UI.logContainer.prepend(entry);
+
+                    // SEND VIOLATION REPORT TO BACKEND
+                    try {
+                        const screenshot = await captureCanvasAsBase64();
+                        const payload = {
+                            session_id: interviewId,
+                            message: data.msg,
+                            meta: {
+                                timestamp: data.timestamp,
+                                type: data.type,
+                                facesCount: data.facesCount,
+                                phonesCount: data.phonesCount,
+                            },
+                            screenshot: screenshot,
+                            userId: userId,                    // INCLUDE USER ID
+                            interviewId: interviewId,          // INCLUDE INTERVIEW ID
+                            testType: testType,                // INCLUDE TEST TYPE
+                        };
+
+                        const response = await fetch("http://127.0.0.1:8000/report", {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify(payload),
+                        });
+
+                        if (response.ok) {
+                            const result = await response.json();
+                            console.log("✅ Violation reported to backend", result);
+                        } else {
+                            console.error("❌ Backend response:", response.status);
+                        }
+                    } catch (err) {
+                        console.error("❌ Failed to report violation:", err.message);
+                    }
                 },
             });
 
@@ -788,6 +864,14 @@
                 UI.logContainer.innerHTML =
                     '<div class="text-slate-500 italic text-center mt-8">Session ended.</div>';
             });
+
+            // Display session info when page loads
+            window.addEventListener("DOMContentLoaded", () => {
+                displaySessionInfo();
+            });
+            
+            // Also call it immediately in case DOM is ready
+            displaySessionInfo();
         </script>
     </body>
 </html>
