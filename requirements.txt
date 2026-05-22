@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+motor
+python-multipart
+opencv-python-headless
+ultralytics
+pydantic
+motor
+python-socketio
+flask
+flask-socketio

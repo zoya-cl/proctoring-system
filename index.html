@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Proctor</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <style>
+            @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap");
+
+            body {
+                font-family: "Inter", sans-serif;
+                background-color: #0f172a;
+                color: #f8fafc;
+            }
+            .mono {
+                font-family: "JetBrains Mono", monospace;
+            }
+
+            /* Custom Scrollbar for logs */
+            ::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            ::-webkit-scrollbar-track {
+                background: #1e293b;
+                border-radius: 4px;
+            }
+            ::-webkit-scrollbar-thumb {
+                background: #475569;
+                border-radius: 4px;
+            }
+            ::-webkit-scrollbar-thumb:hover {
+                background: #64748b;
+            }
+
+            .glass-panel {
+                background: rgba(30, 41, 59, 0.7);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+
+            .status-dot {
+                height: 10px;
+                width: 10px;
+                border-radius: 50%;
+                display: inline-block;
+                box-shadow: 0 0 8px currentColor;
+            }
+
+            /* Overlay alignment */
+            .media-container {
+                position: relative;
+                width: 100%;
+                max-width: 100%;
+                border-radius: 0.75rem;
+                overflow: hidden;
+                background: #000;
+                aspect-ratio: 16/9;
+            }
+            #videoEl,
+            #overlayCanvas {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+            }
+            #overlayCanvas {
+                z-index: 10;
+                pointer-events: none;
+            }
+        </style>
+    </head>
+    <body class="min-h-screen flex flex-col p-4 md:p-8">
+        <main
+            class="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto w-full"
+        >
+            <!-- Left Column: Camera & Stats -->
+            <div class="lg:col-span-2 flex flex-col gap-6">
+                <!-- Camera Viewport -->
+                <div
+                    id="cameraWrapper"
+                    class="media-container border-2 border-slate-800 transition-colors duration-300 shadow-2xl shadow-black/50"
+                >
+                    <video id="videoEl" autoplay muted playsinline></video>
+                    <canvas id="overlayCanvas"></canvas>
+
+                    <!-- Loading Overlay -->
+                    <div
+                        id="loadingOverlay"
+                        class="absolute inset-0 bg-slate-900/80 flex flex-col items-center justify-center z-20 backdrop-blur-sm hidden"
+                    >
+                        <svg
+                            class="animate-spin h-10 w-10 text-cyan-400 mb-4"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                        >
+                            <circle
+                                class="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                stroke-width="4"
+                            ></circle>
+                            <path
+                                class="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                        </svg>
+                        <p
+                            class="text-cyan-400 font-semibold tracking-wide"
+                            id="loadingText"
+                        >
+                            Initializing AI Models...
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Telemetry Stats -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="glass-panel p-4 rounded-xl text-center">
+                        <div
+                            class="text-slate-400 text-xs font-bold tracking-wider mb-1"
+                        >
+                            FACES DETECTED
+                        </div>
+                        <div
+                            class="text-3xl font-bold mono text-white"
+                            id="statFaces"
+                        >
+                            0
+                        </div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl text-center">
+                        <div
+                            class="text-slate-400 text-xs font-bold tracking-wider mb-1"
+                        >
+                            TOTAL VIOLATIONS
+                        </div>
+                        <div
+                            class="text-3xl font-bold mono text-rose-400"
+                            id="statViol"
+                        >
+                            0
+                        </div>
+                    </div>
+                    <div class="glass-panel p-4 rounded-xl text-center">
+                        <div
+                            class="text-slate-400 text-xs font-bold tracking-wider mb-1"
+                        >
+                            SESSION TIME
+                        </div>
+                        <div
+                            class="text-3xl font-bold mono text-cyan-400"
+                            id="statTime"
+                        >
+                            00:00
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Violation Log -->
+                <div
+                    class="glass-panel rounded-xl flex flex-col h-48 overflow-hidden"
+                >
+                    <div
+                        class="bg-slate-800/50 px-4 py-2 border-b border-slate-700/50 flex justify-between items-center"
+                    >
+                        <h3 class="text-sm font-semibold text-slate-300">
+                            Incident Log
+                        </h3>
+                        <span class="text-xs text-slate-500 mono"
+                            >Live stream</span
+                        >
+                    </div>
+                    <div
+                        id="violLog"
+                        class="p-4 flex flex-col gap-2 overflow-y-auto flex-1 font-mono text-sm"
+                    >
+                        <div class="text-slate-500 italic text-center mt-8">
+                            No violations recorded yet.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Controls & Checks -->
+            <div class="flex flex-col gap-6">
+                <div
+                    class="glass-panel p-6 rounded-xl border-t-4 border-t-cyan-500"
+                >
+                    <h2 class="text-lg font-semibold mb-4">Session Control</h2>
+                    <p class="text-sm text-slate-400 mb-6">
+                        Ensure your face is clearly visible and well-lit. Put
+                        away all unauthorized devices.
+                    </p>
+                    <button
+                        id="startBtn"
+                        class="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-900 font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-[1.02] active:scale-95 shadow-lg shadow-cyan-500/20"
+                    >
+                        Start Monitoring
+                    </button>
+                    <button
+                        id="stopBtn"
+                        class="w-full bg-rose-500 hover:bg-rose-400 text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 mt-3 hidden shadow-lg shadow-rose-500/20"
+                    >
+                        End Session
+                    </button>
+                </div>
+
+                <div class="glass-panel p-6 rounded-xl flex-1">
+                    <h2 class="text-lg font-semibold mb-4">
+                        Real-time Analysis
+                    </h2>
+
+                    <div class="flex flex-col gap-3">
+                        <!-- Check Items -->
+                        <div
+                            class="check-card flex items-center p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            id="chk-face"
+                        >
+                            <div
+                                class="indicator w-3 h-3 rounded-full bg-slate-500 mr-4 shadow-[0_0_8px_currentColor]"
+                            ></div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-sm">
+                                    Face Presence
+                                </div>
+                                <div
+                                    class="status-msg text-xs text-slate-400 mono mt-0.5"
+                                >
+                                    Awaiting camera...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div
+                            class="check-card flex items-center p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            id="chk-multi"
+                        >
+                            <div
+                                class="indicator w-3 h-3 rounded-full bg-slate-500 mr-4 shadow-[0_0_8px_currentColor]"
+                            ></div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-sm">
+                                    Single Identity
+                                </div>
+                                <div
+                                    class="status-msg text-xs text-slate-400 mono mt-0.5"
+                                >
+                                    Awaiting camera...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div
+                            class="check-card flex items-center p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            id="chk-gaze"
+                        >
+                            <div
+                                class="indicator w-3 h-3 rounded-full bg-slate-500 mr-4 shadow-[0_0_8px_currentColor]"
+                            ></div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-sm">
+                                    Head Pose / Gaze
+                                </div>
+                                <div
+                                    class="status-msg text-xs text-slate-400 mono mt-0.5"
+                                >
+                                    Awaiting camera...
+                                </div>
+                            </div>
+                        </div>
+
+                        <div
+                            class="check-card flex items-center p-3 rounded-lg bg-slate-800/50 border border-slate-700"
+                            id="chk-phone"
+                        >
+                            <div
+                                class="indicator w-3 h-3 rounded-full bg-slate-500 mr-4 shadow-[0_0_8px_currentColor]"
+                            ></div>
+                            <div class="flex-1">
+                                <div class="font-semibold text-sm">
+                                    Object Detection
+                                </div>
+                                <div
+                                    class="status-msg text-xs text-slate-400 mono mt-0.5"
+                                >
+                                    Awaiting camera...
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <script type="module">
+            import {
+                FaceLandmarker,
+                ObjectDetector,
+                FilesetResolver,
+                DrawingUtils,
+            } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs";
+
+            /**
+             * ProctorKit SDK - Real-time Proctoring Pipeline
+             * (Inlined to ensure the preview environment works without needing a local dev server)
+             */
+            class ProctorKit {
+                constructor(config) {
+                    this.config = Object.assign(
+                        {
+                            apiBase: "",
+                            sessionId: "local",
+                            onResult: null,
+                            onViolation: null,
+                        },
+                        config,
+                    );
+                    this.active = false;
+                    this.startTime = null;
+                    this.violCount = 0;
+
+                    // Temporal buffers to prevent flickering false positives
+                    this.buffers = { phone: 0, noFace: 0, multiFace: 0 };
+                    this.thresholds = { phone: 5, noFace: 15, multiFace: 15 }; // Frames required to trigger
+
+                    this.runners = { face: null, object: null };
+                    this.lastLogTime = 0;
+                }
+
+                async init(onProgress) {
+                    if (onProgress) onProgress("Loading Vision Tasks...");
+                    const vision = await FilesetResolver.forVisionTasks(
+                        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm",
+                    );
+
+                    if (onProgress) onProgress("Loading Face Model...");
+                    this.runners.face = await FaceLandmarker.createFromOptions(
+                        vision,
+                        {
+                            baseOptions: {
+                                modelAssetPath:
+                                    "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+                            },
+                            runningMode: "VIDEO",
+                            numFaces: 2, // Allow 2 to detect multiple faces accurately
+                            outputFacialBlendshapes: true,
+                        },
+                    );
+
+                    if (onProgress) onProgress("Loading Object Model...");
+                    this.runners.object =
+                        await ObjectDetector.createFromOptions(vision, {
+                            baseOptions: {
+                                modelAssetPath:
+                                    "https://storage.googleapis.com/mediapipe-models/object_detector/ssd_mobilenet_v2/float16/1/ssd_mobilenet_v2.tflite",
+                            },
+                            runningMode: "VIDEO",
+                            scoreThreshold: 0.4, // Lowered to 0.4 to catch webcam objects more reliably
+                        });
+                }
+
+                start(videoEl, canvasCtx) {
+                    this.video = videoEl;
+                    this.ctx = canvasCtx;
+
+                    if (this.ctx) {
+                        this.drawingUtils = new DrawingUtils(canvasCtx);
+                        // Set canvas size to match video intrinsic size
+                        this.ctx.canvas.width = this.video.videoWidth;
+                        this.ctx.canvas.height = this.video.videoHeight;
+                    }
+
+                    this.active = true;
+                    this.startTime = Date.now();
+                    this.violCount = 0;
+                    this.buffers = { phone: 0, noFace: 0, multiFace: 0 };
+
+                    this.loop();
+                }
+
+                stop() {
+                    this.active = false;
+                    if (this.ctx)
+                        this.ctx.clearRect(
+                            0,
+                            0,
+                            this.ctx.canvas.width,
+                            this.ctx.canvas.height,
+                        );
+                }
+
+                loop() {
+                    if (!this.active) return;
+
+                    if (this.video.readyState >= 2) {
+                        const ts = performance.now();
+                        const faceResults = this.runners.face
+                            ? this.runners.face.detectForVideo(this.video, ts)
+                            : null;
+                        const objectResults = this.runners.object
+                            ? this.runners.object.detectForVideo(this.video, ts)
+                            : null;
+
+                        this.process(faceResults, objectResults);
+                        if (this.ctx) this.draw(faceResults, objectResults);
+                    }
+
+                    requestAnimationFrame(() => this.loop());
+                }
+
+                process(faceResults, objectResults) {
+                    const faces = faceResults?.faceLandmarks || [];
+                    const allObjects = objectResults?.detections || [];
+
+                    // Use all detected objects but exclude "person" as they are required to be in frame
+                    // Added optional chaining (?.) to prevent crashes if an object has no label
+                    const detectedObjects = allObjects.filter(
+                        (det) =>
+                            !det.categories.some(
+                                (c) =>
+                                    c.categoryName?.toLowerCase() === "person",
+                            ),
+                    );
+                    const objectNames = detectedObjects.map(
+                        (d) => d.categories[0]?.categoryName || "Unknown",
+                    );
+
+                    // Update Temporal Buffers (Use decay instead of instant reset to handle bounding box flickering)
+                    this.buffers.phone =
+                        detectedObjects.length > 0
+                            ? Math.min(10, this.buffers.phone + 1)
+                            : Math.max(0, this.buffers.phone - 1);
+                    this.buffers.noFace =
+                        faces.length === 0
+                            ? Math.min(30, this.buffers.noFace + 1)
+                            : Math.max(0, this.buffers.noFace - 1);
+                    this.buffers.multiFace =
+                        faces.length > 1
+                            ? Math.min(30, this.buffers.multiFace + 1)
+                            : Math.max(0, this.buffers.multiFace - 1);
+
+                    // Threshold Check
+                    const hasObject =
+                        this.buffers.phone >= this.thresholds.phone;
+                    const noFace =
+                        this.buffers.noFace >= this.thresholds.noFace;
+                    const multiFace =
+                        this.buffers.multiFace >= this.thresholds.multiFace;
+
+                    // Gaze heuristic (Simple: nose compared to eye edges)
+                    let gazeOk = false;
+                    if (faces.length > 0) {
+                        const lm = faces[0];
+                        // Very simple heuristic: check if nose (1) is between left (263) and right (33) eye corners roughly
+                        const ratio =
+                            (lm[1].x - lm[33].x) /
+                            (lm[263].x - lm[33].x + 0.0001);
+                        gazeOk = ratio > 0.35 && ratio < 0.65;
+                    }
+
+                    const elapsedSeconds = Math.floor(
+                        (Date.now() - this.startTime) / 1000,
+                    );
+                    const mins = String(
+                        Math.floor(elapsedSeconds / 60),
+                    ).padStart(2, "0");
+                    const secs = String(elapsedSeconds % 60).padStart(2, "0");
+
+                    const data = {
+                        facesCount: faces.length,
+                        phonesCount: detectedObjects.length, // Kept property name for compatibility with UI
+                        objectNames: [...new Set(objectNames)], // Unique list of found items
+                        elapsedRaw: elapsedSeconds,
+                        elapsedFormatted: `${mins}:${secs}`,
+                        violations: this.violCount,
+                        checks: {
+                            face: !noFace, // true means GOOD
+                            multi: !multiFace, // true means GOOD
+                            gaze: gazeOk, // true means GOOD
+                            phone: !hasObject, // true means GOOD (No objects detected)
+                        },
+                    };
+
+                    if (this.config.onResult) this.config.onResult(data);
+
+                    // Rate limit violation reporting (e.g., max 1 report every 3 seconds)
+                    const now = Date.now();
+                    if (
+                        (noFace || multiFace || hasObject || !gazeOk) &&
+                        now - this.lastLogTime > 3000
+                    ) {
+                        this.violCount++;
+                        let msg = "";
+                        if (noFace) msg = "Face not visible";
+                        else if (multiFace) msg = "Multiple faces detected";
+                        else if (hasObject)
+                            msg =
+                                "Object detected: " +
+                                data.objectNames.join(", ");
+                        else if (!gazeOk) msg = "Looking away from screen";
+
+                        this.lastLogTime = now;
+                        if (this.config.onViolation)
+                            this.config.onViolation({
+                                msg,
+                                type: msg.split(" ")[0],
+                                timestamp: `${mins}:${secs}`,
+                            });
+                    }
+                }
+
+                draw(faceResults, objectResults) {
+                    const cw = this.ctx.canvas.width;
+                    const ch = this.ctx.canvas.height;
+                    this.ctx.clearRect(0, 0, cw, ch);
+
+                    // Draw Faces
+                    if (faceResults && faceResults.faceLandmarks) {
+                        for (const landmarks of faceResults.faceLandmarks) {
+                            this.drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_TESSELATION,
+                                {
+                                    color: "rgba(6, 182, 212, 0.2)",
+                                    lineWidth: 1,
+                                },
+                            );
+                            this.drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+                                { color: "#0ea5e9", lineWidth: 2 },
+                            );
+                            this.drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+                                { color: "#0ea5e9", lineWidth: 2 },
+                            );
+                            this.drawingUtils.drawConnectors(
+                                landmarks,
+                                FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+                                { color: "#0ea5e9", lineWidth: 2 },
+                            );
+                        }
+                    }
+
+                    // Draw All Detected Objects (except for 'person')
+                    if (objectResults && objectResults.detections) {
+                        const unauthorizedObjects =
+                            objectResults.detections.filter(
+                                (det) =>
+                                    !det.categories.some(
+                                        (c) =>
+                                            c.categoryName?.toLowerCase() ===
+                                            "person",
+                                    ),
+                            );
+                        for (const obj of unauthorizedObjects) {
+                            const box = obj.boundingBox;
+                            const cat = obj.categories[0];
+
+                            this.ctx.strokeStyle = "#f43f5e"; // Rose 500
+                            this.ctx.lineWidth = 4;
+                            this.ctx.strokeRect(
+                                box.originX,
+                                box.originY,
+                                box.width,
+                                box.height,
+                            );
+
+                            this.ctx.fillStyle = "#f43f5e";
+                            this.ctx.font = "16px JetBrains Mono";
+                            this.ctx.fillText(
+                                `${cat?.categoryName || "Object"} ${Math.round((cat?.score || 0) * 100)}%`,
+                                box.originX,
+                                box.originY - 10,
+                            );
+                        }
+                    }
+                }
+            }
+
+            /**
+             * UI Controller
+             */
+            const UI = {
+                video: document.getElementById("videoEl"),
+                canvas: document.getElementById("overlayCanvas"),
+                startBtn: document.getElementById("startBtn"),
+                stopBtn: document.getElementById("stopBtn"),
+                loadingOverlay: document.getElementById("loadingOverlay"),
+                loadingText: document.getElementById("loadingText"),
+                camWrapper: document.getElementById("cameraWrapper"),
+                logContainer: document.getElementById("violLog"),
+                sysStatusDot: document.getElementById("systemStatusDot"),
+                sysStatusText: document.getElementById("systemStatusText"),
+                stream: null,
+                proctor: null,
+            };
+
+            // Initialize SDK
+            UI.proctor = new ProctorKit({
+                sessionId: "exam_demo_123",
+                onResult: (data) => {
+                    // Update Stats
+                    document.getElementById("statFaces").textContent =
+                        data.facesCount;
+                    document.getElementById("statViol").textContent =
+                        data.violations;
+                    document.getElementById("statTime").textContent =
+                        data.elapsedFormatted;
+
+                    // Update UI Borders based on overall state
+                    const isViolating =
+                        !data.checks.face ||
+                        !data.checks.multi ||
+                        !data.checks.phone;
+                    if (isViolating) {
+                        UI.camWrapper.classList.remove(
+                            "border-slate-800",
+                            "border-cyan-500",
+                        );
+                        UI.camWrapper.classList.add("border-rose-500");
+                    } else {
+                        UI.camWrapper.classList.remove(
+                            "border-slate-800",
+                            "border-rose-500",
+                        );
+                        UI.camWrapper.classList.add("border-cyan-500");
+                    }
+
+                    // Update Check Badges
+                    updateCheck(
+                        "chk-face",
+                        data.checks.face,
+                        "Face Detected",
+                        "No Face Detected",
+                    );
+                    updateCheck(
+                        "chk-multi",
+                        data.checks.multi,
+                        "Single Person",
+                        "Multiple People",
+                    );
+                    updateCheck(
+                        "chk-gaze",
+                        data.checks.gaze,
+                        "Forward Focus",
+                        "Distracted Gaze",
+                    );
+                    updateCheck(
+                        "chk-phone",
+                        data.checks.phone,
+                        "No Objects",
+                        "Objects Detected",
+                    );
+                },
+                onViolation: (data) => {
+                    // Remove empty state message if exists
+                    if (
+                        UI.logContainer.children.length === 1 &&
+                        UI.logContainer.children[0].classList.contains("italic")
+                    ) {
+                        UI.logContainer.innerHTML = "";
+                    }
+
+                    const entry = document.createElement("div");
+                    entry.className =
+                        "flex items-start gap-3 p-2 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 animate-pulse";
+                    setTimeout(
+                        () => entry.classList.remove("animate-pulse"),
+                        1000,
+                    );
+
+                    entry.innerHTML = `
+                    <div class="mt-1"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg></div>
+                    <div>
+                        <div class="font-bold">[${data.timestamp}] ${data.type}</div>
+                        <div class="text-xs opacity-80">${data.msg}</div>
+                    </div>
+                `;
+                    UI.logContainer.prepend(entry);
+                },
+            });
+
+            function updateCheck(id, isGood, goodMsg, badMsg) {
+                const el = document.getElementById(id);
+                const ind = el.querySelector(".indicator");
+                const msg = el.querySelector(".status-msg");
+
+                if (isGood) {
+                    ind.className =
+                        "indicator w-3 h-3 rounded-full bg-emerald-400 mr-4 shadow-[0_0_8px_currentColor]";
+                    msg.textContent = goodMsg;
+                    msg.className =
+                        "status-msg text-xs text-emerald-400 mono mt-0.5";
+                    el.className =
+                        "check-card flex items-center p-3 rounded-lg bg-emerald-900/20 border border-emerald-800/50 transition-colors";
+                } else {
+                    ind.className =
+                        "indicator w-3 h-3 rounded-full bg-rose-500 mr-4 shadow-[0_0_8px_currentColor] animate-pulse";
+                    msg.textContent = badMsg;
+                    msg.className =
+                        "status-msg text-xs text-rose-400 mono mt-0.5";
+                    el.className =
+                        "check-card flex items-center p-3 rounded-lg bg-rose-900/30 border border-rose-800 transition-colors";
+                }
+            }
+
+            function setSystemStatus(active) {
+                if (active) {
+                    return "System Activated";
+                } else {
+                    return "System Deactivated";
+                }
+            }
+
+            UI.startBtn.addEventListener("click", async () => {
+                try {
+                    UI.startBtn.disabled = true;
+                    UI.loadingOverlay.classList.remove("hidden");
+
+                    // 1. Request Camera
+                    UI.loadingText.textContent = "Requesting Camera Access...";
+                    UI.stream = await navigator.mediaDevices.getUserMedia({
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                        },
+                    });
+                    UI.video.srcObject = UI.stream;
+
+                    // Wait for video to be ready to get dimensions
+                    await new Promise((resolve) => {
+                        UI.video.onloadedmetadata = () => {
+                            UI.video.play();
+                            resolve();
+                        };
+                    });
+
+                    // 2. Initialize Models
+                    await UI.proctor.init((msg) => {
+                        UI.loadingText.textContent = msg;
+                    });
+
+                    // 3. Start Loop
+                    const ctx = UI.canvas.getContext("2d");
+                    UI.proctor.start(UI.video, ctx);
+
+                    // 4. Update UI
+                    UI.loadingOverlay.classList.add("hidden");
+                    UI.startBtn.classList.add("hidden");
+                    UI.stopBtn.classList.remove("hidden");
+                    setSystemStatus(true);
+                    UI.logContainer.innerHTML =
+                        '<div class="text-emerald-400 italic text-center mt-8">Session started successfully.</div>';
+                } catch (err) {
+                    console.error(err);
+                    alert("Failed to start: " + err.message);
+                    UI.loadingOverlay.classList.add("hidden");
+                    UI.startBtn.disabled = false;
+                }
+            });
+
+            UI.stopBtn.addEventListener("click", () => {
+                UI.proctor.stop();
+                if (UI.stream) {
+                    UI.stream.getTracks().forEach((t) => t.stop());
+                    UI.video.srcObject = null;
+                }
+                UI.stopBtn.classList.add("hidden");
+                UI.startBtn.classList.remove("hidden");
+                UI.startBtn.disabled = false;
+                UI.camWrapper.classList.remove(
+                    "border-rose-500",
+                    "border-cyan-500",
+                );
+                UI.camWrapper.classList.add("border-slate-800");
+                setSystemStatus(false);
+                UI.logContainer.innerHTML =
+                    '<div class="text-slate-500 italic text-center mt-8">Session ended.</div>';
+            });
+        </script>
+    </body>
+</html>
