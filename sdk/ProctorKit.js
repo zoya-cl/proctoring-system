@@ -41,6 +41,15 @@ export class ProctorKit {
 
     loop() {
         if (!this.active) return;
+        const now = Date.now();
+        const intervalMs = 5000; // run checks every 5 seconds for better detection accuracy
+
+        if (now - this.lastDetectionTs < intervalMs) {
+            requestAnimationFrame(() => this.loop());
+            return;
+        }
+
+        this.lastDetectionTs = now;
         if (this.video.readyState >= 2) {
             const ts = performance.now();
             const res = {
@@ -57,32 +66,67 @@ export class ProctorKit {
         const rawPhones = res.phone?.detections || [];
         const landmarks = faces.length > 0 ? faces[0] : null;
 
+        const phoneDetections = rawPhones.filter((d) => {
+            const label = d.categories?.[0]?.categoryName || "";
+            return /phone|cell|mobile/i.test(label);
+        });
+
         // Temporal buffer for phone detection to reduce false positives
-        if (rawPhones.length > 0) this.phoneFrames++;
+        if (phoneDetections.length > 0) this.phoneFrames++;
         else this.phoneFrames = 0;
-        const isPhoneDetected = this.phoneFrames > 5; // Requires 5 consecutive frames
+        const isPhoneDetected = this.phoneFrames > 3; // Requires several checks in a row
         
+        const isGazeOnScreen = faces.length > 0 && Math.abs(landmarks[1].x - ((landmarks[33].x + landmarks[263].x) / 2)) < 0.12;
         const data = {
             faces: faces.length,
-            phones: isPhoneDetected ? rawPhones.length : 0,
+            phones: isPhoneDetected ? phoneDetections.length : 0,
             elapsed: Math.floor((Date.now() - this.startTime) / 1000) + "s",
             violations: this.violCount || 0,
             checks: {
                 face: faces.length > 0,
                 phone: !isPhoneDetected,
                 multi: faces.length === 1,
-                gaze: faces.length > 0 && Math.abs(landmarks[1].x - (landmarks[33].x + landmarks[263].x)/2) < 0.08,
+                gaze: isGazeOnScreen,
                 frame: faces.length > 0
             }
         };
 
         if (this.onResult) this.onResult(data);
 
-        if (faces.length === 0 || faces.length > 1 || isPhoneDetected) {
+        const isNoFace = faces.length === 0;
+        const isMultiFace = faces.length > 1;
+        const isPhone = isPhoneDetected;
+
+        if (isNoFace) {
+            this.consecutive.noFace += 1;
+        } else {
+            this.consecutive.noFace = 0;
+        }
+        if (isMultiFace) {
+            this.consecutive.multiFace += 1;
+        } else {
+            this.consecutive.multiFace = 0;
+        }
+        if (isPhone) {
+            this.consecutive.phone += 1;
+        } else {
+            this.consecutive.phone = 0;
+        }
+
+        const now = Date.now();
+        const minViolationInterval = 20_000; // 20 seconds
+        const shouldReport = (
+            (isNoFace && this.consecutive.noFace >= 2) ||
+            (isMultiFace && this.consecutive.multiFace >= 2) ||
+            (isPhone && this.consecutive.phone >= 2)
+        ) && now - this.lastViolationTs >= minViolationInterval;
+
+        if (shouldReport) {
             this.violCount++;
-            const msg = faces.length === 0 ? "No face" : isPhoneDetected ? "Phone detected" : "Multiple faces";
+            this.lastViolationTs = now;
+            const msg = isNoFace ? "No face" : isPhone ? "Phone detected" : "Multiple faces";
             this.report(msg, data);
-            if(this.config.onViolation) this.config.onViolation({ msg });
+            if(this.config.onViolation) this.config.onViolation({ msg, type: msg, faces: faces.length, phones: phoneDetections.length, checks: data.checks, elapsed: data.elapsed });
         }
     }
 

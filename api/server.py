@@ -73,11 +73,13 @@ async def async_forward_violation(report_data: dict):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(executor, forward_violation_to_nestjs, report_data)
 
+from typing import Optional
+
 # Updated schema to include user/interview tracking
 class ViolationReport(BaseModel):
     session_id: str
     message: str
-    meta: dict
+    meta: dict = {}
     screenshot: str
     userId: str = Field(..., description="User ID from NestJS backend")
     interviewId: str = Field(None, description="Interview ID if applicable")
@@ -128,6 +130,39 @@ async def report_violation(report: ViolationReport):
     except Exception as e:
         print(f"Error handling report: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/ai-interview/report-violation")
+async def report_violation_nestjs(report: ViolationReport):
+    """
+    NestJS-compatible violation endpoint (mirrors /report)
+    
+    - userId: Required - User ID from NestJS backend
+    - interviewId: Interview/test ID
+    - testType: 'coding', 'interview', or 'test'
+    """
+    try:
+        violation_data = report.dict()
+        # Ensure timestamp is set
+        if "timestamp" not in violation_data:
+            violation_data["timestamp"] = datetime.utcnow()
+        
+        result = await db.save_violation(violation_data)
+        
+        # Asynchronously forward the violation report to NestJS in the background
+        asyncio.create_task(async_forward_violation(violation_data))
+        
+        return {
+            "data": {
+                "violation_id": str(result.inserted_id),
+                "userId": report.userId,
+                "interviewId": report.interviewId,
+                "testType": report.testType
+            }
+        }
+    except Exception as e:
+        print(f"Error handling report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/violations/{user_id}")
 async def get_user_violations(user_id: str):
