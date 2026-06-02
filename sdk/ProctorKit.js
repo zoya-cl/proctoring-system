@@ -131,19 +131,26 @@ export class ProctorKit {
     }
 
     async report(message, meta) {
+        // Send directly to NestJS backend, bypassing FastAPI layer
         const payload = { 
-            session_id: this.config.examSessionId, 
+            userId: this.config.userId,
+            interviewId: this.config.interviewId,
             message: message, 
+            screenshot: "data:image/jpeg;base64,...",
+            testType: "interview",
             meta: meta,
-            screenshot: "data:image/jpeg;base64,..." // Placeholder since evidence capture is handled by caller
+            timestamp: new Date().toISOString()
         };
-        console.log("Reporting Payload:", payload);
+        console.log("📤 Sending violation to NestJS:", payload);
         try {
-            await fetch(`${this.config.apiBase}/report`, {
+            const nestjsBackend = this.config.nestjsBackend || "http://localhost:8080";
+            const response = await fetch(`${nestjsBackend}/ai-interview/report-violation`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-        } catch (e) { console.error("ProctorKit Report Error:", e); }
+            const result = await response.json();
+            console.log("✅ Violation reported successfully:", result);
+        } catch (e) { console.error("❌ ProctorKit Report Error:", e); }
     }
 }

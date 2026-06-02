@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from models.database import db
 from config.settings import CONFIG
@@ -7,6 +8,7 @@ from datetime import datetime
 import cv2
 import numpy as np
 import base64
+import os
 
 # Attempt to load YOLO locally on server for validation
 try:
@@ -18,6 +20,11 @@ except:
 
 app = FastAPI(title="Proctoring Microservice - Integrated with NestJS")
 app.add_middleware(CORSMiddleware, allow_origins=CONFIG["ALLOWED_ORIGINS"], allow_methods=["*"], allow_headers=["*"])
+
+# Mount static files to serve the proctoring frontend
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+app.mount("/proctoring-system", StaticFiles(directory=parent_dir, html=True), name="proctoring-system")
 
 import urllib.request
 import json

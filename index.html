@@ -604,11 +604,33 @@
             // Helper function to capture canvas as base64
             async function captureCanvasAsBase64() {
                 try {
-                    const canvas = UI.canvas || document.getElementById("videoEl");
-                    return canvas.toDataURL("image/jpeg", 0.7);
+                    // Try to get overlay canvas first (has face/object detection overlays)
+                    let canvas = UI.canvas || document.getElementById("overlayCanvas");
+                    
+                    // Fallback to video element if canvas not available
+                    if (!canvas) {
+                        canvas = document.getElementById("videoEl");
+                    }
+                    
+                    if (!canvas) {
+                        console.warn("⚠️  No canvas element found for screenshot capture");
+                        return null;
+                    }
+                    
+                    // Capture canvas as JPEG
+                    const dataUrl = canvas.toDataURL("image/jpeg", 0.7);
+                    
+                    // Validate - real JPEG data should be 100+ characters
+                    if (!dataUrl || dataUrl.length < 100) {
+                        console.warn(`⚠️  Screenshot capture too small (${dataUrl?.length || 0} chars) - canvas may be empty`);
+                        return null;
+                    }
+                    
+                    console.log(`📸 Screenshot captured: ${dataUrl.substring(0, 50)}... (${dataUrl.length} bytes)`);
+                    return dataUrl;
                 } catch (err) {
-                    console.warn("Could not capture canvas:", err);
-                    return "data:image/jpeg;base64,";
+                    console.error("❌ Could not capture canvas:", err.message);
+                    return null;
                 }
             }
 
@@ -640,6 +662,7 @@
             const userId = urlParams.get('userId') || 'user_' + Date.now();
             const interviewId = urlParams.get('interviewId') || 'interview_' + Date.now();
             const testType = urlParams.get('testType') || 'interview'; // coding, interview, test
+            const autoStart = urlParams.get('autoStart') === 'true';
             
             document.title = `ProctorKit - ${testType.toUpperCase()} [User: ${userId}]`;
 
@@ -732,22 +755,22 @@
                     // SEND VIOLATION REPORT TO BACKEND
                     try {
                         const screenshot = await captureCanvasAsBase64();
+                        
+                        // Validate screenshot data
+                        if (!screenshot || screenshot.length < 100) {
+                            console.warn("⚠️  Screenshot capture insufficient (empty or too small):", screenshot?.length || 0);
+                        }
+                        
                         const payload = {
-                            session_id: interviewId,
-                            message: data.msg,
-                            meta: {
-                                timestamp: data.timestamp,
-                                type: data.type,
-                                facesCount: data.facesCount,
-                                phonesCount: data.phonesCount,
-                            },
-                            screenshot: screenshot,
-                            userId: userId,                    // INCLUDE USER ID
-                            interviewId: interviewId,          // INCLUDE INTERVIEW ID
-                            testType: testType,                // INCLUDE TEST TYPE
+                            userId: userId,                    // REQUIRED - User identifier
+                            interviewId: interviewId,          // REQUIRED - Interview/session ID
+                            message: data.msg,                 // Violation message
+                            screenshot: screenshot || "",      // Base64 image data (will be uploaded to S3)
+                            testType: testType,                // Test type: coding, aptitude, interview
                         };
 
-                        const response = await fetch("http://127.0.0.1:8000/report", {
+                        // Use correct AI-Interview violation endpoint
+                        const response = await fetch("http://127.0.0.1:8000/ai-interview/violation", {
                             method: "POST",
                             headers: {
                                 "Content-Type": "application/json",
@@ -757,9 +780,9 @@
 
                         if (response.ok) {
                             const result = await response.json();
-                            console.log("✅ Violation reported to backend", result);
+                            console.log("✅ Violation reported to backend with screenshot upload", result);
                         } else {
-                            console.error("❌ Backend response:", response.status);
+                            console.error("❌ Backend response:", response.status, await response.text());
                         }
                     } catch (err) {
                         console.error("❌ Failed to report violation:", err.message);
@@ -839,8 +862,10 @@
                     UI.logContainer.innerHTML =
                         '<div class="text-emerald-400 italic text-center mt-8">Session started successfully.</div>';
                 } catch (err) {
-                    console.error(err);
-                    alert("Failed to start: " + err.message);
+                    console.error("Proctoring auto-start failed:", err);
+                    if (!autoStart) {
+                        alert("Failed to start: " + err.message);
+                    }
                     UI.loadingOverlay.classList.add("hidden");
                     UI.startBtn.disabled = false;
                 }
@@ -868,6 +893,12 @@
             // Display session info when page loads
             window.addEventListener("DOMContentLoaded", () => {
                 displaySessionInfo();
+                if (autoStart) {
+                    setTimeout(() => {
+                        console.log("Auto-starting proctoring session...");
+                        UI.startBtn.click();
+                    }, 500);
+                }
             });
             
             // Also call it immediately in case DOM is ready
